@@ -1,0 +1,313 @@
+---
+title: "Using Randomization & Stratification to Overcome A Common Cause Confounder"
+author: "Christian Campos"
+date: today
+format:
+  html: 
+    theme: cosmo
+    toc: true
+    toc-depth: 2
+    number-sections: false
+execute:
+  echo: true
+  warning: false
+  message: false
+  fig-width: 10
+  fig-height: 6
+---
+
+# The Paradox: Who Really Is the Better Surgeon?
+
+## A Tale of Two Surgeons
+*Paraphrased from (Taleb 2017)*
+
+Imagine you need to choose between two surgeons of similar rank at the same hospital. The first surgeon, Doc Dreamy, matches our stereotype perfectly: refined appearance, silver-rimmed glasses, delicate hands, measured speech, and an office adorned with Ivy League diplomas. The second surgeon, Doc Duck, by contrast, looks more like a butcher—overweight, with large hands, an unkempt appearance, and no visible credentials on the wall.
+
+Counterintuitively, the surgeon who doesn't "look the part" may actually be the better choice. Why? Because when someone succeeds in their profession despite not fitting the expected appearance, it suggests they had to overcome significant perceptual biases. And if we are lucky enough to have people who do not look the part, it is thanks to the presence of some skin in the game, the contact with reality that filters out incompetence. (Taleb 2017)
+
+## Observational Data: A Misleading Victory for Doc Dreamy
+
+```{python}
+#| label: load-observational
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Set style for professional plots
+try:
+    plt.style.use('seaborn-v0_8-whitegrid')
+except:
+    try:
+        plt.style.use('seaborn-whitegrid')
+    except:
+        plt.style.use('default')
+sns.set_palette("colorblind")
+
+# Define colors (colorblind-friendly) - used across all figures
+color_dreamy = '#4E79A7'  # blue
+color_duck = '#E15759'    # coral/red-orange
+
+# Load the observational data
+patients_df = pd.read_csv('patients_data.csv')
+
+# Display first few rows to understand the structure
+print(f"Number of patients: {len(patients_df)}")
+patients_df.head()
+```
+
+Let's use data to figure out which surgeon performs better. @fig-plot-outcomes shows the post-surgical symptom score for 100 patients. Doc Duck's average post-surgical symptom score is 3.38 while Doc Dreamy's average is 2.8. Doc Dreamy performs better since lower scores indicate better outcomes. One might ask if the difference in average post-surgical symptom score is statistically significant. A two-sample t-test reveals a statistically significant difference (t = -2.317, p = 0.023).
+
+```{python}
+#| label: fig-plot-outcomes
+#| fig-cap: "Post-Surgical Symptom Score by Patient and Doctor"
+#| fig-width: 10
+#| fig-height: 6
+
+# Create figure with professional styling
+fig, ax = plt.subplots(figsize=(10, 6))
+
+# Separate data by doctor
+dreamy_data = patients_df[patients_df['doctor_name'] == 'Doc Dreamy']
+duck_data = patients_df[patients_df['doctor_name'] == 'Doc Duck']
+
+# Plot scatter points
+ax.scatter(dreamy_data['patient'], dreamy_data['post_surgical_score'], 
+           marker='o', s=100, color=color_dreamy, alpha=0.7, 
+           label='Doc Dreamy', edgecolors='black', linewidths=0.5, zorder=3)
+ax.scatter(duck_data['patient'], duck_data['post_surgical_score'], 
+           marker='^', s=100, color=color_duck, alpha=0.7, 
+           label='Doc Duck', edgecolors='black', linewidths=0.5, zorder=3)
+
+# Calculate means
+mean_dreamy = dreamy_data['post_surgical_score'].mean()
+mean_duck = duck_data['post_surgical_score'].mean()
+
+# Add horizontal dashed lines for means
+ax.axhline(y=mean_dreamy, color=color_dreamy, linestyle='--', 
+           linewidth=2, alpha=0.8, zorder=2)
+ax.axhline(y=mean_duck, color=color_duck, linestyle='--', 
+           linewidth=2, alpha=0.8, zorder=2)
+
+# Add text annotations for means
+ax.text(len(patients_df) * 0.02, mean_dreamy + 0.15, 
+        f'○ Mean = {mean_dreamy:.2f}', 
+        color=color_dreamy, fontsize=12, fontweight='bold', 
+        bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.8))
+ax.text(len(patients_df) * 0.02, mean_duck + 0.15, 
+        f'△ Mean = {mean_duck:.2f}', 
+        color=color_duck, fontsize=12, fontweight='bold',
+        bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.8))
+
+# Labels and title
+ax.set_xlabel('Patient Number', fontsize=14, fontweight='bold')
+ax.set_ylabel('Post-Surgical Symptom Score (Lower is Better)', 
+              fontsize=14, fontweight='bold')
+ax.set_title('Post-Surgical Symptom Score by Patient and Doctor', 
+             fontsize=16, fontweight='bold', pad=20)
+
+# Add grid
+ax.grid(True, alpha=0.3, linestyle='-', linewidth=0.5)
+ax.set_axisbelow(True)
+
+# Add legend
+ax.legend(loc='upper right', fontsize=12, framealpha=0.9)
+
+# Adjust layout
+plt.tight_layout()
+plt.show()
+```
+
+## The Hidden Confounder: Patient Severity Explains It All
+
+A naive interpretation of @fig-plot-outcomes might lead to the conclusion that Doc Dreamy is the superior surgeon because his patients' scores are lower than Doc Duck's patients' scores. However, this interpretation overlooks a critical possibility: the presence of a common cause confounder.
+
+A common cause confounder can create an association between a treatment variable ($X$) and an outcome variable ($Y$) that is not causal in nature. A classic example illustrates this: if $X$ is puddles on the road and $Y$ is people with umbrellas, it does not mean that the puddles cause people to have umbrellas. Instead, a common cause for both—namely rain ($Z$)—is the sole reason for the observed association. The presence of rain causes both puddles and people to carry umbrellas, creating a spurious correlation between the two.
+
+As suggested by Nassim Taleb's observations, there may be an alternate explanation for our surgical outcomes data. Might there be an unaccounted for common cause that is creating the association between surgeon choice and surgical outcomes?
+
+A possible common-cause story would go something like this. Both surgeons have full schedules, with Dr. Dreamy scheduling surgeries 3 weeks in advance and Dr. Duck scheduling surgeries 1 week in advance. As such, patients who are not in a rush, usually those with low severity, are more likely to choose Dr. Dreamy based on his website and picture. However, patients who are in more of a rush, usually those with high severity, are more likely to choose Dr. Duck based on his availability and the fact that he is the only surgeon who can see them immediately.
+
+### Assumption: Slow Progression of Patient Severity
+
+For simplicity, we assume that patient severity progresses slowly enough that a 2-week delay (i.e., waiting for Dr. Dreamy's availability) has zero effect on surgical outcomes. This delay affects only how quickly patients receive surgical relief, not the eventual outcome itself. While time-to-surgery can be an important factor in other contexts, here we focus solely on whether initial patient severity might create a spurious or biased association between surgeon choice and outcomes.
+
+## Solution 1: Randomization — Break the Confounding Path
+
+The gold standard to establish causation is a randomized controlled trial. Instead of letting patients choose their surgeon, we randomly assign them to either Dr. Dreamy or Dr. Duck.
+
+This is precisely the kind of problem randomization can solve. By randomly assigning patients to surgeons, we break the potential confounding relationship where patient severity ends up correlated with choice of surgeon. Since assignment is now random rather than based on patient choice between a good-looking doctor and a doctor available more quickly, we eliminate this confounding pathway. This allows us to assess whether surgeon identity truly matters for surgical success, or if the observed association was merely due to patient severity influencing both surgeon choice and outcomes.
+
+In the randomization scenario, patient severity ($Z$) is no longer a cause of surgeon choice ($X$). Instead, randomization ($R$) completely determines surgeon assignment ($X$). This breaks the confounding relationship between patient severity and surgeon choice, allowing us to assess whether the surgeons themselves truly matter for surgical outcomes.
+
+### Our data doesn't have counterfactuals, how can we know what would have happened to those patients if we had randomized?
+
+**What is a counterfactual?**
+
+A counterfactual is the answer to a "what if" question: what would have happened if circumstances had been different? Specifically, what would each patient's outcome have been if they had been assigned to the other surgeon, holding everything else constant? These are the unobserved alternative outcomes—the outcomes that didn't happen but could have happened under different treatment assignment.
+
+Unfortunately, we can't observe what didn't happen. The patients we already observed went to the surgeon they chose (or who was available), and we'll never know their outcomes under the alternative assignment. This is the fundamental problem of causal inference: we only see one world, not the parallel universe where everything else was held constant but the treatment differed.
+
+Since we cannot rerun history with randomization, we run an experiment to collect the data we need. So, we randomly assigned a sequence of 100 patients to either Dr. Dreamy or Dr. Duck and observed the following data:
+
+```{python}
+#| label: load-randomized
+# Load the randomized data
+patients_randomized_df = pd.read_csv('patients_data_randomized.csv')
+
+# Display first few rows
+print(f"Number of randomized patients: {len(patients_randomized_df)}")
+patients_randomized_df.head()
+```
+
+@fig-plot-outcomes-randomized shows the post-surgical symptom score for 100 patients under randomized assignment. Doc Duck's average post-surgical symptom score is 2.71 while Doc Dreamy's average is 3.46. Doc Duck performs better since lower scores indicate better outcomes. With randomization breaking the confounding relationship, we can now properly assess the causal effect. A two-sample t-test reveals a statistically significant difference (t = 2.734, p = 0.007). Not only is Dr. Dreamy not the better surgeon, he is actually the worse surgeon!
+
+```{python}
+#| label: fig-plot-outcomes-randomized
+#| fig-cap: "Post-Surgical Symptom Score (Randomized Assignment)"
+#| fig-width: 10
+#| fig-height: 6
+
+# Create figure with professional styling
+fig, ax = plt.subplots(figsize=(10, 6))
+
+# Separate data by doctor
+dreamy_data_rand = patients_randomized_df[patients_randomized_df['doctor_name'] == 'Doc Dreamy']
+duck_data_rand = patients_randomized_df[patients_randomized_df['doctor_name'] == 'Doc Duck']
+
+# Plot scatter points
+ax.scatter(dreamy_data_rand['patient'], dreamy_data_rand['post_surgical_score'], 
+           marker='o', s=100, color=color_dreamy, alpha=0.7, 
+           label='Doc Dreamy', edgecolors='black', linewidths=0.5, zorder=3)
+ax.scatter(duck_data_rand['patient'], duck_data_rand['post_surgical_score'], 
+           marker='^', s=100, color=color_duck, alpha=0.7, 
+           label='Doc Duck', edgecolors='black', linewidths=0.5, zorder=3)
+
+# Calculate means
+mean_dreamy_rand = dreamy_data_rand['post_surgical_score'].mean()
+mean_duck_rand = duck_data_rand['post_surgical_score'].mean()
+
+# Add horizontal dashed lines for means
+ax.axhline(y=mean_dreamy_rand, color=color_dreamy, linestyle='--', 
+           linewidth=2, alpha=0.8, zorder=2)
+ax.axhline(y=mean_duck_rand, color=color_duck, linestyle='--', 
+           linewidth=2, alpha=0.8, zorder=2)
+
+# Add text annotations for means
+ax.text(len(patients_randomized_df) * 0.02, mean_dreamy_rand + 0.15, 
+        f'○ Mean = {mean_dreamy_rand:.2f}', 
+        color=color_dreamy, fontsize=12, fontweight='bold', 
+        bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.8))
+ax.text(len(patients_randomized_df) * 0.02, mean_duck_rand + 0.15, 
+        f'△ Mean = {mean_duck_rand:.2f}', 
+        color=color_duck, fontsize=12, fontweight='bold',
+        bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.8))
+
+# Labels and title
+ax.set_xlabel('Patient Number', fontsize=14, fontweight='bold')
+ax.set_ylabel('Post-Surgical Symptom Score (Lower is Better)', 
+              fontsize=14, fontweight='bold')
+ax.set_title('Post-Surgical Symptom Score (Randomized Assignment)', 
+             fontsize=16, fontweight='bold', pad=20)
+
+# Add grid
+ax.grid(True, alpha=0.3, linestyle='-', linewidth=0.5)
+ax.set_axisbelow(True)
+
+# Add legend
+ax.legend(loc='upper right', fontsize=12, framealpha=0.9)
+
+# Adjust layout
+plt.tight_layout()
+plt.show()
+```
+
+## Solution 2: Stratification — When You Can't Randomize
+
+The key to handling a common cause confounder is to stratify by the common cause. In general, this means we examine the relationship between treatment and outcome within groups that share the same value of the confounder. In our example, this means we look at patients of similar severity and compare the outcomes of the surgeons for patients of similar severity. There are mathematically sophisticated ways to do this, but here we demonstrate it visually. Since patient number lacks inherent meaning, the following figure shows patient severity on the x-axis and post-surgical symptom score on the y-axis.
+
+```{python}
+#| label: fig-plot-outcomes-severity
+#| fig-cap: "Post-Surgical Symptom Score by Patient Severity"
+#| fig-width: 10
+#| fig-height: 6
+
+# Create figure with professional styling
+fig, ax = plt.subplots(figsize=(10, 6))
+
+# Separate data by doctor (using observational data)
+dreamy_data_sev = patients_df[patients_df['doctor_name'] == 'Doc Dreamy']
+duck_data_sev = patients_df[patients_df['doctor_name'] == 'Doc Duck']
+
+# Plot scatter points
+ax.scatter(dreamy_data_sev['severity'], dreamy_data_sev['post_surgical_score'], 
+           marker='o', s=100, color=color_dreamy, alpha=0.7, 
+           label='Doc Dreamy', edgecolors='black', linewidths=0.5, zorder=3)
+ax.scatter(duck_data_sev['severity'], duck_data_sev['post_surgical_score'], 
+           marker='^', s=100, color=color_duck, alpha=0.7, 
+           label='Doc Duck', edgecolors='black', linewidths=0.5, zorder=3)
+
+# Calculate means
+mean_dreamy_sev = dreamy_data_sev['post_surgical_score'].mean()
+mean_duck_sev = duck_data_sev['post_surgical_score'].mean()
+
+# Add horizontal dashed lines for means
+ax.axhline(y=mean_dreamy_sev, color=color_dreamy, linestyle='--', 
+           linewidth=2, alpha=0.8, zorder=2)
+ax.axhline(y=mean_duck_sev, color=color_duck, linestyle='--', 
+           linewidth=2, alpha=0.8, zorder=2)
+
+# Add shaded region for severity between -1 and 1
+ax.axvspan(-1, 1, alpha=0.15, color='gray', zorder=0, label='Overlap Region')
+
+# Add text annotations for means
+ax.text(ax.get_xlim()[0] + 0.1, mean_dreamy_sev + 0.15, 
+        f'○ Mean = {mean_dreamy_sev:.2f}', 
+        color=color_dreamy, fontsize=12, fontweight='bold', 
+        bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.8))
+ax.text(ax.get_xlim()[0] + 0.1, mean_duck_sev + 0.15, 
+        f'△ Mean = {mean_duck_sev:.2f}', 
+        color=color_duck, fontsize=12, fontweight='bold',
+        bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.8))
+
+# Labels and title
+ax.set_xlabel('Initial Patient Severity', fontsize=14, fontweight='bold')
+ax.set_ylabel('Post-Surgical Symptom Score (Lower is Better)', 
+              fontsize=14, fontweight='bold')
+ax.set_title('Post-Surgical Symptom Score by Patient Severity', 
+             fontsize=16, fontweight='bold', pad=20)
+
+# Add grid
+ax.grid(True, alpha=0.3, linestyle='-', linewidth=0.5)
+ax.set_axisbelow(True)
+
+# Add legend
+ax.legend(loc='upper right', fontsize=12, framealpha=0.9)
+
+# Adjust layout
+plt.tight_layout()
+plt.show()
+```
+
+Looking at @fig-plot-outcomes-severity, the value of stratifying by severity is visually most obvious with initial patient severity scores between -1 and 1 (highlighted in the overlay). We chose this region because it shows substantial overlap between the two surgeons—both surgeons have considerable data within this range, making it an ideal region for comparing their performance. Outside of this range, there is less data available for making direct comparisons: Doc Duck sees more of the higher-severity patients (severity > 1), while Doc Dreamy sees more of the lower-severity patients (severity < -1).
+
+Within the highlighted region, Doc Dreamy's blue circles tend to be higher (worse) than Doc Duck's red triangles for these patients. It is also obvious that Doc Duck is seeing the more severe patients overall, as his red triangles are generally to the right of Doc Dreamy's blue circles on the x-axis. This is exactly what we would expect if patient severity were a common cause of surgeon choice and surgical outcomes. Despite the aggregate statistics pointing to Doc Dreamy having lower (better) post-surgical symptom scores on average, our visual analysis of this overlapping region leads us to conclude that Doc Duck is actually the better surgeon—a conclusion that would be obscured if we only looked at the means without stratifying by severity.
+
+## Conclusion: The Power of Proper Causal Inference
+
+The analysis presented here demonstrates a fundamental challenge in causal inference: the numbers can easily mislead when we don't understand what they're really telling us.
+
+When examining the raw observational data, Doc Dreamy appears to be the superior surgeon with lower average post-surgical symptom scores. However, this association does not reflect a true causal relationship. Correlation is not causation, and in this case, the apparent relationship is entirely explained by a common cause confounder.
+
+Patient severity operates as the hidden confounder in this scenario, systematically directing easier cases to Doc Dreamy while sending more challenging cases to Doc Duck. When we don't account for this confounding, we cannot distinguish between "Doc Dreamy is a better surgeon" and "Doc Dreamy received more favorable patient assignments." In any analysis, it is crucial to identify and account for potential common-cause confounders that may create spurious associations.
+
+Randomization provides the gold standard defense against this type of confounding. By randomly assigning patients to surgeons, we break the confounding pathway and reveal the true causal effect. In our randomized experiment, the data clearly shows that Doc Duck is actually the superior surgeon—a conclusion that was completely obscured in the observational data.
+
+When randomization is not possible, which is the case in most real-world scenarios, stratification offers a powerful alternative. By examining the relationship between treatment and outcome within groups of similar patient severity, we can compare like with like and uncover the true causal effect. Our stratified analysis reveals that within comparable severity ranges, Doc Duck consistently outperforms Doc Dreamy.
+
+The key lesson is clear: understanding the structure of causal relationships is essential for accurate inference. By drawing directed acyclic graphs (DAGs) and thinking carefully about what causes what, we can identify potential confounders and select appropriate methods to address them. Randomization when feasible, stratification when randomization is not possible—these tools are straightforward in principle, but their proper application requires careful consideration of the underlying causal structure.
+
+## References
+
+Taleb, Nassim Nicholas. 2017. "Surgeons Should Not Look Like Surgeons." https://medium.com/incerto/surgeons-should-notlook-like-surgeons-23b0e2cf6d52.
+
